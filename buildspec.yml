@@ -1,0 +1,52 @@
+version: 0.2
+
+phases:
+  pre_build:
+    commands:
+      - echo Login into ECR
+      - aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com
+      - IMAGE_URI=${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/ncai/maf:${CODEBUILD_RESOLVED_SOURCE_VERSION} 
+  build:
+    commands:
+      - echo Building the Docker image..
+      - docker build -t ${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/ncai/maf:latest .
+      - docker tag ${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/ncai/maf:latest ${IMAGE_URI}
+      - echo Pushing the Docker image...
+      - docker push ${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/ncai/maf:latest
+      - docker push ${IMAGE_URI}
+  post_build:
+    commands:
+      - aws ecs register-task-definition --family ncai-maf --container-definitions 
+        '[{"name":"ncai-maf", 
+        "image":"'"${IMAGE_URI}"'",
+        "cpu":4096,
+        "memory":12288,
+        "essential":true,
+        "logConfiguration":{
+               "logDriver":"awslogs",
+               "options":{
+                   "awslogs-group":"/ecs/ncai-maf",
+                   "mode":"non-blocking",
+                   "awslogs-create-group":"true",
+                   "max-buffer-size":"25m",
+                   "awslogs-region":"us-east-1",
+                   "awslogs-stream-prefix":"ecs"
+               },
+               "secretOptions":[]
+        },
+        "portMappings":[{"name":"ncai-maf-8000-tcp", "containerPort":8000, "hostPort":8000, "protocol":"tcp", "appProtocol":"http"}],
+        "secrets":[{"name":"AWS_SECRET_ACCESS_KEY", "valueFrom":"arn:aws:secretsmanager:us-east-1:326104905432:secret:ncai/barrons-ticker/staging-rSUzx9:AWS_SECRET_ACCESS_KEY::"},
+                   {"name":"AWS_ACCESS_KEY_ID", "valueFrom":"arn:aws:secretsmanager:us-east-1:326104905432:secret:ncai/barrons-ticker/staging-rSUzx9:AWS_ACCESS_KEY_ID::"},
+                   {"name":"AWS_REGION_NAME", "valueFrom":"arn:aws:secretsmanager:us-east-1:326104905432:secret:ncai/barrons-ticker/staging-rSUzx9:AWS_REGION_NAME::"},
+                   {"name":"LANGFUSE_SECRET_KEY_BARRONS_CHAT", "valueFrom":"arn:aws:secretsmanager:us-east-1:326104905432:secret:ncai/barrons-ticker/staging-rSUzx9:LANGFUSE_SECRET_KEY_BARRONS_CHAT::"},
+                   {"name":"LANGFUSE_PUBLIC_KEY_BARRONS_CHAT", "valueFrom":"arn:aws:secretsmanager:us-east-1:326104905432:secret:ncai/barrons-ticker/staging-rSUzx9:LANGFUSE_PUBLIC_KEY_BARRONS_CHAT::"},
+                   {"name":"LANGFUSE_HOST", "valueFrom":"arn:aws:secretsmanager:us-east-1:326104905432:secret:ncai/barrons-ticker/staging-rSUzx9:LANGFUSE_HOST::"}]
+        }]'
+        --execution-role-arn arn:aws:iam::326104905432:role/ecsTaskExecutionRole 
+        --requires-compatibilities FARGATE 
+        --network-mode awsvpc 
+        --cpu 4096 
+        --memory 12288 
+        --ephemeral-storage sizeInGiB=100
+      - REVISION=$(aws ecs describe-task-definition   --task-definition ncai-maf   --query "taskDefinition.revision")
+      - aws ecs update-service --cluster NCAI-MAF --service ncai --task-definition ncai-maf:${REVISION}

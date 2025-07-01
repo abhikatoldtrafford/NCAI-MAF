@@ -1,0 +1,73 @@
+[tool.poetry]
+name = "ncai-maf"
+version = "0.1.0"
+description = "A modular API for generating responses using AWS Bedrock Claude"
+authors = ["Qaim Hassan Abbas <qhassanabbas.consultant@newscorp.com>", "Shashi Kant<skant.consultant@newcorp.com>", "Ishan Deva <ideva@newscorp.com>", "Mayank Bhatia<mbhatia.consultant@newscorp.com>"]
+packages = [
+    {include = "api"},
+    {include = "application"},
+    {include = "infrastructure"},
+    {include = "orchestration"},
+    {include = "api/main.py"}
+]
+
+[tool.poetry.dependencies]
+python = "^3.12"
+fastapi = "^0.115.0"
+uvicorn = "^0.23.2"
+pydantic = "^2.3.0"
+boto3 = "^1.28.38"
+langchain-core = "^0.3.0"
+langchain = "^0.3.0"
+langchain-chroma = "^0.1.4"
+mangum = "^0.17.0"  # For AWS Lambda deployment (optional)
+gql = "^3.5.2"
+langfuse = "^2.49.0"
+ariadne = "^0.23.0"
+langchain-huggingface = "^0.1.0"
+langchain-openai = "^0.2.2"
+langchain-aws = "^0.2.4"
+streamlit-oauth = "^0.1.14"
+pymysql = "^1.1.1"
+sqlparse = "^0.5.3"
+beautifulsoup4 = "^4.13.3"
+bs4 = "^0.0.2"
+pathlib = "^1.0.1"
+logging = "^0.4.9.6"
+streamlit = "^1.42.2"
+aiohttp = "^3.11.16"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^7.4.0"
+black = "^24.3.0"
+isort = "^5.12.0"
+flake8 = "^6.1.0"
+mypy = "^1.5.1"
+
+[tool.poetry.scripts]
+start = "api.main:main"
+dev = "api.main:dev"
+chat = "api.enhanced_main:main"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.black]
+line-length = 88
+target-version = ["py38"]
+
+[tool.isort]
+profile = "black"
+line_length = 88
+
+[tool.mypy]
+python_version = "3.8"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
