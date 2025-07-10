@@ -1,6 +1,7 @@
 # To run only the API code. Further executions can be managed in the bootstrap.sh file. 
 FROM python:3.12-slim
-ENV PYTHONDONTWRITEBYT1ECODE=1
+
+ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -8,9 +9,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gnupg \
     apt-transport-https \
     ca-certificates \
+    git \
     gcc \
     libffi-dev \
-    python3-poetry \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
@@ -18,18 +19,36 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 
-# Copy the poetry.lock and pyproject.toml first to leverage Docker cache
-COPY pyproject.toml /app/
+# Install uv
+RUN pip install --upgrade pip && pip install uv
 
+# Copy project files
+COPY pyproject.toml /app/
 COPY . /app
 
-RUN poetry install
-RUN poetry lock
+ARG GITHUB_TOKEN
+ENV GITHUB_TOKEN=$GITHUB_TOKEN
+
+# Set up .netrc for GitHub authentication
+RUN set -e && \
+    if [ -n "$GITHUB_TOKEN" ]; then \
+      echo 'import os;from pathlib import Path;import stat;token=os.getenv("GITHUB_TOKEN");p=Path.home()/".netrc";print(p);p.write_text(f"""machine github.com\nlogin {token}\npassword x-oauth-basic\n""");p.chmod(stat.S_IRUSR | stat.S_IWUSR)' > /app/write_netrc.py && \
+      python /app/write_netrc.py && \
+      rm /app/write_netrc.py && \
+      chmod 600 ~/.netrc; \
+    else \
+      echo "No GitHub token provided, skipping .netrc setup"; \
+    fi
+
+# Use uv to install dependencies and the package
+RUN uv pip install --system -e .[dev]
 
 EXPOSE 80
 EXPOSE 443
 EXPOSE 8000
 
-# Set the entry point for the container
+# Clean up .netrc for security
+RUN echo ' ' > ~/.netrc
 
-CMD ["poetry", "run", "python", "/app/api/enhanced_main.py"]
+# Set the entry point for the container
+CMD ["python", "/app/api/enhanced_main.py"]

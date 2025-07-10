@@ -1,4 +1,3 @@
-
 # NCAI-MAF
 
 Stock-screener workflows built with FastAPI around AWS Bedrock Claude.
@@ -11,18 +10,23 @@ Stock-screener workflows built with FastAPI around AWS Bedrock Claude.
 ```bash
 git clone git@github.com:<org>/NCAI-MAF.git
 cd NCAI-MAF
-poetry install
+uv pip install -e .[dev]  # Install with dev dependencies
 ```
 
 ### 2 Environment variables  
 Create **.env** in the project root (pull values from **Secrets Manager → `ncai/barrons-ticker/staging`**):
 ```dotenv
-AWS_SECRET_ACCESS_KEY=...
+# Required environment variables for local development
 AWS_ACCESS_KEY_ID=...
+AWS_SECRET_ACCESS_KEY=...
 AWS_REGION_NAME=us-east-1
+AWS_DEFAULT_REGION=us-east-1
 is_staging=True        # crucial for local runs
+ENVIRONMENT=staging
 LANGFUSE_PUBLIC_KEY=...
 LANGFUSE_SECRET_KEY=...
+LANGFUSE_HOST=...
+OPENAI_API_KEY=...     # For OpenAI model fallbacks
 ```
 These are injected at runtime via  
 `infrastructure/aws/secrets_manager.py` and `business/barrons/config/config.py`.
@@ -31,14 +35,14 @@ These are injected at runtime via
 
 ### 3 Chat endpoint (streamable)
 ```bash
-poetry run chat  # uvicorn api.enhanced_main:main
+uv run chat  # uvicorn api.enhanced_main:main
 ```
 **Test**
 ```bash
 curl -X POST "http://localhost:8000/chat" \
   -H "Content-Type: application/json" \
   -d '{
-        "prompt": "I’m looking for stocks with strong growth potential. Show me companies with high revenue and earnings growth.", 
+        "prompt": "I'm looking for stocks with strong growth potential. Show me companies with high revenue and earnings growth.", 
         "parameters": {
             "session_id": "ui-managed-session-id-13", "user_id": "logged-in-user-email-id-13"
             }, 
@@ -50,7 +54,7 @@ curl -X POST "http://localhost:8000/chat" \
 
 ### 4 Query endpoint
 ```bash
-poetry run start  # uvicorn api.main:main
+uv run start  # uvicorn api.main:main
 ```
 **Test**
 ```bash
@@ -61,6 +65,72 @@ curl -X POST "http://localhost:8000/query" \
       }'
 ```
 A successful call returns **HTTP 200** with the standard API schema (`response`, `details`, …).
+
+---
+
+### 5 Docker development
+
+The project can be run in Docker for consistency across environments.
+
+#### Building the Docker image
+
+If accessing private repositories (like agent-workflow):
+```bash
+# Build with GitHub token for private repo access
+sudo docker build -t ncai-maf:local --build-arg GITHUB_TOKEN=your_github_token .
+```
+
+If all dependencies are public:
+```bash
+# Build without token
+sudo docker build -t ncai-maf:local .
+```
+
+#### Running the Docker container
+```bash
+# Run with environment variables from .env file
+sudo docker run -p 8000:8000 --env-file .env ncai-maf:local
+```
+
+#### Required .env variables for Docker
+At minimum, the following variables should be in your .env file:
+```dotenv
+# AWS Configuration
+AWS_ACCESS_KEY_ID=...
+AWS_SECRET_ACCESS_KEY=...
+AWS_REGION_NAME=us-east-1
+AWS_DEFAULT_REGION=us-east-1
+
+# Environment Settings
+is_staging=True
+ENVIRONMENT=staging
+
+# Langfuse Observability
+LANGFUSE_SECRET_KEY=...
+LANGFUSE_PUBLIC_KEY=...
+LANGFUSE_HOST=...
+
+# Optional but recommended
+OPENAI_API_KEY=...
+MYSQL_DB_HOST=...
+MYSQL_DB_NAME=...
+MYSQL_DB_USER=...
+MYSQL_DB_PASS=...
+```
+
+#### Testing the Docker container
+```bash
+# Test the API
+curl -X POST "http://localhost:8000/chat" \
+  -H "Content-Type: application/json" \
+  -d '{
+        "prompt": "Show me tech stocks with high growth potential", 
+        "parameters": {
+            "session_id": "docker-test", 
+            "user_id": "docker-user"
+        }
+      }'
+```
 
 ---
 
@@ -75,7 +145,7 @@ A successful call returns **HTTP 200** with the standard API schema (`response`,
 
 ## 📑 MAF API Reference
 
-### 1 `/feedback`
+### 1 `/feedback`
 
 | Method | Path       | Purpose                         |
 |--------|------------|---------------------------------|
@@ -129,7 +199,7 @@ A successful call returns **HTTP 200** with the standard API schema (`response`,
 
 ---
 
-### 2 `/chat`
+### 2 `/chat`
 
 | Method | Path   | Purpose                                   |
 |--------|--------|-------------------------------------------|
@@ -140,7 +210,7 @@ A successful call returns **HTTP 200** with the standard API schema (`response`,
 
 ```jsonc
 {
-  "prompt": "I’m looking for stocks with strong growth potential…",
+  "prompt": "I'm looking for stocks with strong growth potential…",
   "parameters": {
     "session_id": "ui-managed-session-id-1",
     "user_id": "logged-in-user-email-id-1"
@@ -174,7 +244,7 @@ A successful call returns **HTTP 200** with the standard API schema (`response`,
 
 ---
 
-### 3 `/query`
+### 3 `/query`
 
 | Method | Path    | Purpose                         |
 |--------|---------|---------------------------------|
@@ -184,7 +254,7 @@ Payload mirrors `/chat` minus `stream` and `conversation_id`.
 
 ---
 
-### 4 Conversation management
+### 4 Conversation management
 
 | Method | Path                                  | Description              |
 |--------|---------------------------------------|--------------------------|
@@ -193,7 +263,7 @@ Payload mirrors `/chat` minus `stream` and `conversation_id`.
 
 ---
 
-### 5 Utility endpoints
+### 5 Utility endpoints
 
 | Path                     | Method | Response                    |
 |--------------------------|--------|-----------------------------|
@@ -227,5 +297,3 @@ TO-DO
 ---
 
 ## 📄 License
-
-TO-DO
