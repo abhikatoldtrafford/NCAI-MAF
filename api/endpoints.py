@@ -1,6 +1,6 @@
 from fastapi import FastAPI, HTTPException, Depends
 from typing import Dict, Any
-from orchestration.coordinators.orchestrator import Orchestrator
+from NewsAgents.orchestration.coordinators.orchestrator import Orchestrator
 from api.schema import PromptRequest, PromptResponse
 
 # Create FastAPI app

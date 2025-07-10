@@ -1,9 +1,9 @@
 import uvicorn
 import os
 import argparse
-from business.barrons.business_logic.business_logic_service import BusinessLogicManager
-from business.barrons.config.config import get_config as get_barrons_config
-from orchestration.coordinators.orchestrator import Orchestrator
+from barrons.business_logic.business_logic_service import BusinessLogicManager
+from barrons.config.config import get_config as get_barrons_config
+from NewsAgents.orchestration.coordinators.orchestrator import Orchestrator
 from api.endpoints import setup_app
 
 def main():

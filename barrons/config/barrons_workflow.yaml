@@ -1,0 +1,279 @@
+definitions:
+  RDSDataList:
+    type: list
+    items:
+      type: list
+      items:
+        one_of:
+          - { type: string }
+          - { type: number }
+
+  RDSColumnList:
+    type: list
+    item_type: string
+
+  RDSColumnDefList:
+    type: list
+    items:
+      type: dict
+      properties:
+        column_name: { type: string }
+        column_def: { type: string }
+      required: [column_name, column_def]
+
+# ───────── Workflow ─────────
+name: "Barron's Workflow"
+description: >
+  Run (all) workflows (sequentially for now).
+version: "1.0"
+stages:
+  # ───────── 1. Stocks Data ─────────
+  - name: "Stocks Data Workflow"
+    description: "Generate an SQL query, fetch raw stock data, and explain in plain terms to the user."
+    execution_type: sequential
+    tasks:
+      # ───────── 1.1 Generate SQL Query ─────────
+      - name: "Generate SQL Query"
+        prompt: |+
+          {{ generate_sql_user_prompt }}
+        agent:
+          id: "generate_sql_query"
+          agent_type: "LLMAgent"
+          system_prompt: |+
+            {{ generate_sql_sys_prompt }}
+          input_schema:
+            generate_sql_user_prompt:
+              type: string
+              required: true
+            generate_sql_sys_prompt:
+              # Can be removed once WorkflowInput can fill system_prompt field; for now uses AgentManager._load_yaml_file()
+              type: string
+              required: true
+          output_schema:
+            sql_query:
+              type: string
+        inputs:
+          generate_sql_user_prompt: "${workflow.inputs.generate_sql_user_prompt}"
+          generate_sql_sys_prompt: "${workflow.inputs.generate_sql_sys_prompt}"
+        outputs:
+          sql_query: "${agent.output_schema.sql_query}"
+
+      # ───────── 1.2 Fetch SQL Data ─────────
+      - name: "Fetch SQL Data"
+        prompt: ""
+        agent:
+          id: "fetch_sql_data"
+          name: "Fetch SQL Data Tool"
+          agent_type: "LLMAgent" 
+          prompt: ""
+          tools:
+            - name: "fetch_sql_data"
+              description: "Execute an SQL against Barron's data"
+              type: "function"
+              parameters:
+                type: dict
+                properties:
+                  sql_query:
+                    type: string
+                    description: "SQL query to run against the stock data table"
+                required: ["sql_query"]
+          system_prompt: |+
+            You are a helpful assistant with access to have access to one tool: fetch_sql_data. Use this for any SQL queries.
+            Make sure to pass through the entire payload from the tool - do not summarize or modify it.
+          input_schema:
+            sql_query:
+              type: string
+              required: true
+          output_schema:
+            rds_data: { $ref: "#/definitions/RDSDataList" }
+            rds_columns: { $ref: "#/definitions/RDSColumnList" }
+            rds_column_definitions: { $ref: "#/definitions/RDSColumnDefList" }
+        inputs:
+          sql_query: "${stages.[Stocks Data Workflow].tasks.[Generate SQL Query].outputs.sql_query}"
+        outputs:
+          rds_data: "${agent.output_schema.rds_data}"
+          rds_columns: "${agent.output_schema.rds_columns}"
+          rds_column_definitions: "${agent.output_schema.rds_column_definitions}"
+
+      # ───────── 1.3 Explain SQL Data ─────────
+      - name: "Explain SQL Data"
+        prompt: "{{ generate_sql_user_prompt }}\n\nData: {{ rds_data }}\n\nColumns: {{ rds_columns }}\n\nColumn definitions: {{ rds_column_definitions }}"
+        agent:
+          id: "explain_sql_data"
+          agent_type: "LLMAgent"
+          system_prompt: |+
+            {{ explain_sql_sys_prompt }}
+          input_schema:
+            generate_sql_user_prompt:
+              type: string
+              required: true
+            rds_data: { $ref: "#/definitions/RDSDataList" }
+            rds_columns: { $ref: "#/definitions/RDSColumnList" }
+            rds_column_definitions: { $ref: "#/definitions/RDSColumnDefList" }
+            explain_sql_sys_prompt:
+              # Can be removed once WorkflowInput can fill system_prompt field; for now uses AgentManager._load_yaml_file()
+              type: string
+              required: true
+          output_schema:
+            rds_data: { $ref: "#/definitions/RDSDataList" }
+            rds_columns: { $ref: "#/definitions/RDSColumnList" }
+            rds_column_definitions: { $ref: "#/definitions/RDSColumnDefList" }
+            explanation:
+              type: string
+        inputs:
+          generate_sql_user_prompt: "${workflow.inputs.generate_sql_user_prompt}"
+          explain_sql_sys_prompt: "${workflow.inputs.explain_sql_sys_prompt}"
+          rds_data: "${stages.[Stocks Data Workflow].tasks.[Fetch SQL Data].outputs.rds_data}"
+          rds_columns: "${stages.[Stocks Data Workflow].tasks.[Fetch SQL Data].outputs.rds_columns}"
+          rds_column_definitions: "${stages.[Stocks Data Workflow].tasks.[Fetch SQL Data].outputs.rds_column_definitions}"
+        outputs:
+          rds_data: "${stages.[Stocks Data Workflow].tasks.[Fetch SQL Data].outputs.rds_data}"
+          rds_columns: "${stages.[Stocks Data Workflow].tasks.[Fetch SQL Data].outputs.rds_columns}"
+          rds_column_definitions: "${stages.[Stocks Data Workflow].tasks.[Fetch SQL Data].outputs.rds_column_definitions}"
+          explanation: "${agent.output_schema.explanation}"
+
+  # ───────── 2. News Data ─────────
+  - name: "News Data Workflow"
+    description: "Generate search terms, fetch news articles, and analyze them."
+    execution_type: sequential
+    tasks:
+      # ───────── 2.1 Generate Search Terms ─────────
+      - name: "Generate Search Terms"
+        prompt: "Current market data:\n\nData: {{ rds_data }}\n\nColumns: {{ rds_columns }}\n\nColumn definitions: {{ rds_column_definitions }}\n\n{{ search_terms_user_prompt }}"
+        agent:
+          id: "generate_search_terms"
+          agent_type: "LLMAgent"
+          system_prompt: |+
+            {{ search_terms_sys_prompt }}
+          input_schema:
+            search_terms_user_prompt:
+              type: string
+              required: true
+            search_terms_sys_prompt:
+              # Can be removed once WorkflowInput can fill system_prompt field; for now uses AgentManager._load_yaml_file()
+              type: string
+              required: true
+            rds_data: { $ref: "#/definitions/RDSDataList" }
+            rds_columns: { $ref: "#/definitions/RDSColumnList" }
+            rds_column_definitions: { $ref: "#/definitions/RDSColumnDefList" }
+          output_schema:
+            search_terms:
+              type: string
+        inputs:
+          search_terms_user_prompt: "${workflow.inputs.search_terms_user_prompt}"
+          search_terms_sys_prompt: "${workflow.inputs.search_terms_sys_prompt}"
+          rds_data: "${stages.[Stocks Data Workflow].tasks.[Fetch SQL Data].outputs.rds_data}"
+          rds_columns: "${stages.[Stocks Data Workflow].tasks.[Fetch SQL Data].outputs.rds_columns}"
+          rds_column_definitions: "${stages.[Stocks Data Workflow].tasks.[Fetch SQL Data].outputs.rds_column_definitions}"
+        outputs:
+          search_terms: "${agent.output_schema.search_terms}"
+
+      # ───────── 2.2 Fetch News Articles ─────────
+      - name: "Fetch News Articles"
+        prompt: "Search terms: {{ search_terms }}\n\n{{ fetch_articles_user_prompt }}"
+        agent:
+          id: "fetch_articles"
+          name: "Fetch News Articles Tool"
+          agent_type: "LLMAgent"
+          tools:
+            - name: "fetch_articles"
+              description: "Fetch articles using the SDL GraphQL API"
+              type: "function"
+              parameters:
+                type: dict
+                properties:
+                  search_terms:
+                    type: string
+                    description: "Query term for graph QL queries"
+                required: ["search_terms"]
+          system_prompt: |+
+            You are a helpful assistant with access to one tool: fetch_articles. Use this for any news related queries.
+            Make sure to pass through the entire payload from the tool - do not alter, flatten or re-format.
+          input_schema:
+            search_terms:
+              type: string
+              required: true
+          output_schema:
+            url:
+              type: list
+              item_type: string
+            content:
+              type: list
+              item_type: string
+        inputs:
+          search_terms: "${stages.[News Data Workflow].tasks.[Generate Search Terms].outputs.search_terms}"
+        outputs:
+          url: "${agent.output_schema.url}"
+          content: "${agent.output_schema.content}"
+
+      # ───────── 2.3 Analyze News Data ─────────
+      - name: "Analyze News Data"
+        prompt: "News Articles:\n\nURLs: {{ url }}\n\nContents: {{ content }}\n\n{{ analyze_news_user_prompt }}\n\n"
+        agent:
+          id: "analyze_news_data"
+          agent_type: "LLMAgent"
+          system_prompt: |+
+            {{ analyze_news_sys_prompt }}
+          input_schema:
+            analyze_news_user_prompt:
+              type: string
+              required: true
+            url:
+              type: list
+              item_type: string
+            content:
+              type: list
+              item_type: string
+            analyze_news_sys_prompt:
+              # Can be removed once WorkflowInput can fill system_prompt field; for now uses AgentManager._load_yaml_file()
+              type: string
+              required: true
+          output_schema:
+            insights:
+              type: string
+        inputs:
+          analyze_news_user_prompt: "${workflow.inputs.analyze_news_user_prompt}"
+          analyze_news_sys_prompt: "${workflow.inputs.analyze_news_sys_prompt}"
+          url: "${stages.[News Data Workflow].tasks.[Fetch News Articles].outputs.url}"
+          content: "${stages.[News Data Workflow].tasks.[Fetch News Articles].outputs.content}"
+        outputs:
+          insights: "${agent.output_schema.insights}"
+
+  # ───────── 3. Followup Questions ─────────
+  - name: "Followup Questions Workflow"
+    description: "Generate followup questions based on the user's questions."
+    execution_type: sequential
+    tasks:
+      - name: "Generate Followup Questions"
+        prompt: "Current market data:\n\nData: {{ rds_data }}\n\nColumns: {{ rds_columns }}\n\nColumn definitions: {{ rds_column_definitions }}\n\nNews data: {{ insights }}\n\n{{ followup_questions_user_prompt }}"
+        agent:
+          id: "generate_followup_questions"
+          agent_type: "LLMAgent"
+          system_prompt: |+
+            {{ followup_questions_sys_prompt }}
+          input_schema:
+            followup_questions_user_prompt:
+              type: string
+              required: true
+            followup_questions_sys_prompt:
+              # Can be removed once WorkflowInput can fill system_prompt field; for now uses AgentManager._load_yaml_file()
+              type: string
+              required: true
+            rds_data: { $ref: "#/definitions/RDSDataList" }
+            rds_columns: { $ref: "#/definitions/RDSColumnList" }
+            rds_column_definitions: { $ref: "#/definitions/RDSColumnDefList" }
+            insights:
+              type: string
+          output_schema:
+            followup_questions:
+              type: list
+              item_type: string
+        inputs:
+          followup_questions_user_prompt: "${workflow.inputs.followup_questions_user_prompt}"
+          followup_questions_sys_prompt: "${workflow.inputs.followup_questions_sys_prompt}"
+          rds_data: "${stages.[Stocks Data Workflow].tasks.[Fetch SQL Data].outputs.rds_data}"
+          rds_columns: "${stages.[Stocks Data Workflow].tasks.[Fetch SQL Data].outputs.rds_columns}"
+          rds_column_definitions: "${stages.[Stocks Data Workflow].tasks.[Fetch SQL Data].outputs.rds_column_definitions}"
+          insights: "${stages.[News Data Workflow].tasks.[Analyze News Data].outputs.insights}"
+        outputs:
+          followup_questions: "${agent.output_schema.followup_questions}"
